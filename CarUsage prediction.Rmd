@@ -1,0 +1,583 @@
+---
+title: "Car Usage prediction"
+output: html_notebook
+---
+
+
+Libraries used
+```{r}
+library(psych)
+library(dplyr)
+library(DataExplorer)
+library(ggplot2)
+library(esquisse)
+library(corrplot)
+library(DMwR)
+library(car)
+library(blorr)
+library(caret)
+library(fastDummies)
+library(class)
+library(ipred)
+library(rpart)
+library(xgboost)
+
+
+```
+
+
+
+Loading the Dataset:
+```{r}
+
+Cars_data <- read.csv("D:/GL_PGP/Assignments/Machine Learning/Cars.csv")
+View(Cars_data)
+
+Cars = Cars_data
+
+```
+
+
+Basic Info
+```{r}
+head(Cars)
+tail(Cars)
+str(Cars)
+summary(Cars)
+```
+
+
+```{r}
+
+describe(Cars)
+glimpse(Cars)
+```
+
+
+Check for NA values
+```{r}
+anyNA(Cars)
+sum(is.na(Cars))
+colSums(is.na(Cars))
+```
+
+
+Converting 'Engineer', 'MBA' and 'License' to factors and adding levels
+```{r}
+
+Cars$Engineer = as.factor(Cars$Engineer)
+levels(Cars$Engineer) = c("No","Yes")
+Cars$MBA = as.factor(Cars$MBA)
+levels(Cars$MBA) = c("No", "Yes")
+Cars$license = as.factor(Cars$license)
+levels(Cars$license) = c("No", "Yes")
+
+
+summary(Cars)
+
+```
+
+
+```{r}
+
+create_report(Cars)
+```
+
+
+Univariate and Bivariate analysis
+```{r}
+boxplot(Cars$Age)
+```
+
+```{r}
+hist(Cars$Age,col = "blue")
+```
+
+```{r}
+boxplot(Cars$Work.Exp)
+```
+
+```{r}
+hist(Cars$Work.Exp, col = "blue")
+```
+
+```{r}
+boxplot(Cars$Salary)
+```
+
+```{r}
+hist(Cars$Salary, col = "blue")
+```
+
+```{r}
+boxplot(Cars$Distance)
+```
+
+```{r}
+hist(Cars$Distance, col = "blue")
+```
+
+```{r}
+#esquisser()
+
+ggplot(Cars) +
+ aes(x = Gender) +
+ geom_bar(fill = "#0c4c8a") +
+ theme_minimal()
+```
+
+```{r}
+#esquisser()
+
+ggplot(Cars) +
+ aes(x = Transport) +
+ geom_bar(fill = "#0c4c8a") +
+ theme_minimal()
+```
+
+```{r}
+#esquisser()
+
+ggplot(Cars) +
+ aes(x = Transport, y = Age) +
+ geom_boxplot(fill = "#0c4c8a") +
+ theme_minimal()
+```
+
+
+```{r}
+#esquisser()
+
+ggplot(Cars) +
+ aes(x = Transport, y = Work.Exp) +
+ geom_boxplot(fill = "#0c4c8a") +
+ theme_minimal()
+```
+
+
+```{r}
+#esquisser()
+
+ggplot(Cars) +
+ aes(x = Transport, y = Salary) +
+ geom_boxplot(fill = "#0c4c8a") +
+ theme_minimal()
+```
+
+```{r}
+#esquisser()
+
+ggplot(Cars) +
+ aes(x = Transport, y = Distance) +
+ geom_boxplot(fill = "#0c4c8a") +
+ theme_minimal()
+```
+
+```{r}
+table(Cars$Gender, Cars$Transport)
+```
+
+
+Correlation Check
+
+```{r}
+
+Cars_num= Cars[c(1, 5:7)]
+summary(Cars_num)
+
+
+corrplot(cor(Cars_num))
+corrplot(cor(Cars_num), type = "lower", method = "number")
+```
+
+
+Data Preparation
+KNN imputation for the missing value
+```{r}
+
+Cars = knnImputation(Cars, 5)
+
+summary(Cars)
+```
+
+
+Since our main objective is to predict whether or not an employee will use Car as a mode of transport, Hence we will create a new column for Car usage, which will take value 0 for Public Transport & 2 Wheeler and 1 for car usage
+
+```{r}
+Cars$CarUsage<-ifelse(Cars$Transport =='Car',1,0)
+table(Cars$CarUsage)
+
+summary(Cars)
+```
+
+Converting CarUsage column to factors
+```{r}
+Cars$CarUsage = as.factor(Cars$CarUsage)
+levels(Cars$CarUsage) = c("No","Yes")
+
+summary(Cars)
+```
+
+Removing the Transport column from the data
+```{r}
+Cars = Cars[-9]
+summary(Cars)
+```
+
+
+Train-Test split
+
+```{r}
+prop.table(table(Cars$CarUsage))
+
+numrow=nrow(Cars)
+set.seed(1025)
+
+split=sample(seq_len(numrow),ceiling(.7*numrow),replace=F)
+train = Cars[split,]
+test = Cars[-split,]
+
+dim(train)
+prop.table(table(train$CarUsage))
+dim(test)
+prop.table(table(test$CarUsage))
+```
+
+
+Model Building
+Logistic Regression
+```{r}
+
+LR_1 <- glm(CarUsage ~. , data=train, family = binomial)
+summary(LR_1)
+```
+
+
+VIF check - to check for the variables of importance
+```{r}
+
+vif(LR_1)
+
+```
+
+step wise selection of variables by blorr
+```{r}
+
+model = blorr::blr_step_aic_both(LR_1)
+model$model
+```
+
+
+```{r}
+LR_2 <- glm(CarUsage ~ Age + license + Work.Exp + MBA + Salary, data=train, family = binomial)
+summary(LR_2)
+```
+
+
+```{r}
+LR_3 <- glm(CarUsage ~  license + Work.Exp + MBA + Salary, data=train, family = binomial)
+summary(LR_3)
+```
+
+
+```{r}
+
+fitControl <- trainControl(
+  method = "cv",
+  number = 5,
+savePredictions = 'final',
+classProbs = T)
+
+#Defining the predictors and outcome
+predictors<-c("Age", "Work.Exp", "Gender", "Engineer", "MBA","license", "Salary", "Distance")
+
+```
+
+
+```{r}
+set.seed(1044)
+model_lr1<-train(train[,predictors],train[,outcomeName],method='glm',trControl=fitControl,tuneLength=3)
+
+model_lr1
+
+```
+
+Predicting and checking accuracy on test data
+```{r}
+pred_lr1 = predict(model_lr1, newdata = test)
+table(test$CarUsage, pred_lr1)
+
+
+
+confusionMatrix(pred_lr1, test$CarUsage, positive = "Yes")
+```
+
+```{r}
+varImp(model_lr1)
+```
+
+
+```{r}
+set.seed(102)
+model_lr2 = train(CarUsage ~ Age + Distance + license + Salary + Work.Exp + MBA, data = train,method='glm',trControl=fitControl,tuneLength=3)
+
+model_lr2
+
+```
+
+Predicting and checking accuracy on test data
+```{r}
+pred_lr2 = predict(model_lr2, newdata = test)
+table(test$CarUsage, pred_lr2)
+
+
+
+confusionMatrix(pred_lr2, test$CarUsage, positive = "Yes")
+```
+
+
+
+Data preparation for knn modeling
+Distance based model, hence needs numerical variables for predictors
+```{r}
+Cars_knn = Cars_data
+str(Cars_knn)
+
+Cars_knn$CarUsage<-ifelse(Cars_knn$Transport =='Car',1,0)
+Cars_knn$CarUsage = as.factor(Cars_knn$CarUsage)
+levels(Cars_knn$CarUsage) = c("No","Yes")
+
+Cars_knn = knnImputation(Cars_knn, 5)
+
+summary(Cars_knn)
+
+str(Cars_knn)
+
+
+```
+
+```{r}
+
+Cars_knn1 = dummy_cols(Cars_knn, select_columns = 'Gender')
+str(Cars_knn1)
+
+Cars_knn1 = Cars_knn1[, -2]
+Cars_knn1 = Cars_knn1[, -8]
+
+str(Cars_knn1)
+summary(Cars_knn1)
+
+```
+
+Train-Test split for knn
+```{r}
+random <- createDataPartition(Cars_knn1$CarUsage, p=0.70, list=FALSE)
+knn_train <- Cars_knn1[ random,]
+knn_test <- Cars_knn1[-random,]
+
+dim(knn_train)
+prop.table(table(knn_train$CarUsage))
+dim(knn_test)
+prop.table(table(knn_test$CarUsage))
+
+```
+
+KNN Model
+```{r}
+set.seed(102)
+model_knn1 <- train(CarUsage ~ ., method='knn',tuneGrid=expand.grid(k = 2:20), trControl=fitControl,metric = "Accuracy",preProcess = c("center","scale"),data = knn_train)
+
+model_knn1
+
+```
+
+Predicting and checking accuracy on test data
+```{r}
+pred_knn1 = predict(model_knn1, newdata = knn_test)
+table(knn_test$CarUsage, pred_knn1)
+
+
+
+confusionMatrix(pred_knn1, knn_test$CarUsage, positive = "Yes")
+```
+
+```{r}
+varImp(model_knn1)
+```
+
+
+```{r}
+set.seed(201)
+model_knn2 <- train(CarUsage ~ Age + Work.Exp + Distance + Salary, method='knn',tuneGrid=expand.grid(k = 2:20), trControl=fitControl,metric = "Accuracy",preProcess = c("center","scale"),data = knn_train)
+
+model_knn2
+
+```
+
+```{r}
+pred_knn2 = predict(model_knn2, newdata = knn_test)
+table(knn_test$CarUsage, pred_knn2)
+
+
+
+confusionMatrix(pred_knn2, knn_test$CarUsage, positive = "Yes")
+```
+
+
+```{r}
+set.seed(201)
+model_knn <- train(CarUsage ~ Age + Work.Exp + Distance + Salary, method='knn',tuneGrid=expand.grid(k = 2:20), trControl=fitControl,metric = "Accuracy",preProcess = c("center","scale"),data = train)
+
+model_knn
+
+```
+
+```{r}
+pred_knn = predict(model_knn, newdata = test)
+table(test$CarUsage, pred_knn)
+
+
+
+confusionMatrix(pred_knn, test$CarUsage, positive = "Yes")
+```
+
+Naive-Bayes model
+```{r}
+set.seed(522)
+model_nb1<-train(train[,predictors],train[,outcomeName],method='nb',trControl=fitControl,tuneLength=3)
+
+model_nb1
+
+```
+
+
+```{r}
+pred_nb1 = predict(model_nb1, newdata = test)
+table(test$CarUsage, pred_nb1)
+
+
+
+confusionMatrix(pred_nb1, test$CarUsage, positive = "Yes")
+```
+
+```{r}
+varImp(model_nb1)
+```
+
+
+```{r}
+set.seed(201)
+model_nb2 <- train(CarUsage ~ Age + Work.Exp + Distance + Salary +license, method='nb', trControl=fitControl,tuneLength=3,data =train)
+
+model_nb2
+
+```
+
+```{r}
+pred_nb2 = predict(model_nb2, newdata = test)
+table(test$CarUsage, pred_nb2)
+
+
+
+confusionMatrix(pred_nb2, test$CarUsage, positive = "Yes")
+```
+
+
+Bagging
+```{r}
+
+set.seed(201)
+Cars_bag = bagging(CarUsage ~. , data = train, nbagg =25, coob = TRUE, control = rpart.control(maxdepth = 5, minsplit = 15))
+
+Cars_bag
+
+```
+
+```{r}
+pred_bag1 = predict(Cars_bag, newdata = test)
+table(test$CarUsage, pred_bag1)
+
+
+
+confusionMatrix(pred_bag1, test$CarUsage, positive = "Yes")
+```
+
+```{r}
+varImp(Cars_bag)
+```
+
+
+```{r}
+
+set.seed(102)
+Cars_bag2 = bagging(CarUsage ~ Age + Distance + license + Salary + Work.Exp, data = train, nbagg =25, coob = TRUE, control = rpart.control(maxdepth = 5, minsplit = 15))
+
+Cars_bag2
+
+```
+
+```{r}
+pred_bag2 = predict(Cars_bag2, newdata = test)
+table(test$CarUsage, pred_bag2)
+
+
+
+confusionMatrix(pred_bag2, test$CarUsage, positive = "Yes")
+```
+
+
+Boosting
+```{r}
+
+
+xgbGrid <- expand.grid(nrounds= c(50, 100),
+                       max_depth = c(2,4,8),
+                       eta = c(0.4,.1,.01),
+                       colsample_bytree = seq(0.5,0.8, length.out=4),
+                       min_child_weight = 1,
+                       subsample = 1,
+                       gamma = 0
+)
+
+set.seed(101)
+Car_boost <- train(CarUsage ~ .,
+               data = train,
+               method = "xgbTree",
+               trControl = trainControl("cv", number = 5),
+               tuneGrid = xgbGrid
+)
+
+Car_boost
+```
+
+
+```{r}
+pred_boost1 = predict(Car_boost, newdata = test)
+table(test$CarUsage, pred_boost1)
+
+
+
+confusionMatrix(pred_boost1, test$CarUsage, positive = "Yes")
+```
+
+```{r}
+varImp(Car_boost)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
